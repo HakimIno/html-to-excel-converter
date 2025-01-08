@@ -33,6 +33,8 @@ cssutils.log.setLevel(logging.CRITICAL)
 
 class HTMLToExcelConverter:
     def __init__(self):
+        cssutils.log.setLevel(logging.CRITICAL)
+        
         self.default_font = Font(name='TH Sarabun New', size=10)
         self.default_alignment = Alignment(horizontal='center', vertical='center')
         self.default_border = Border(
@@ -45,91 +47,77 @@ class HTMLToExcelConverter:
         self.header_font = Font(name='TH Sarabun New', size=10, bold=True)
         self.current_row = 1
 
-    def get_cell_dimensions(self, cell):
-        """Get rowspan and colspan of a cell"""
-        rowspan = int(cell.get('rowspan', 1))
-        colspan = int(cell.get('colspan', 1))
-        return rowspan, colspan
-
-    def process_cell(self, ws, cell, row, col, merged_cells):
-        """Process a single cell and handle merging"""
-        rowspan, colspan = self.get_cell_dimensions(cell)
-        
-        # Get cell content
-        value = cell.get_text(strip=True)
-        excel_cell = ws.cell(row=row, column=col)
-        excel_cell.value = value
-        
-        # Apply styles
-        styles = self.parse_style(cell)
-        
-        # Set default style for header cells
-        if cell.name == 'th':
-            styles['font-weight'] = 'bold'
-        
-        self.apply_cell_style(excel_cell, styles)
-        
-        # Handle merged cells
-        if rowspan > 1 or colspan > 1:
-            merge_range = f"{get_column_letter(col)}{row}:{get_column_letter(col+colspan-1)}{row+rowspan-1}"
+    def parse_style(self, element):
+        """Parse style attribute from HTML element"""
+        styles = {}
+        style = element.get('style', '')
+        if style:
             try:
-                ws.merge_cells(merge_range)
-                
-                # Track merged areas
-                for r in range(row, row + rowspan):
-                    for c in range(col, col + colspan):
-                        merged_cells.add((r, c))
+                parsed = cssutils.parseStyle(style)
+                for property in parsed:
+                    styles[property.name] = property.value
             except:
-                print(f"Warning: Could not merge cells {merge_range}")
-        
-        return colspan
+                pass
+        return styles
 
     def css_to_rgb(self, color):
-        """Convert CSS color to RGB"""
+        """Convert CSS color to RGB tuple"""
         if not color:
             return None
             
-        if color.startswith('#'):
-            color = color[1:]
-            if len(color) != 6:
-                return None
-            try:
+        try:
+            if color.startswith('#'):
+                # Handle hex colors
+                color = color.lstrip('#')
+                if len(color) == 3:
+                    color = ''.join(c + c for c in color)
                 return tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
-            except ValueError:
-                return None
-            
-        rgb_match = re.search(r'rgb\((\d+),\s*(\d+),\s*(\d+)\)', color)
-        if rgb_match:
-            try:
-                return tuple(map(int, rgb_match.groups()))
-            except ValueError:
-                return None
+                
+            elif color.startswith('rgb'):
+                # Handle rgb/rgba colors
+                return tuple(map(int, re.findall(r'\d+', color)[:3]))
+        except:
+            pass
             
         return None
 
-    def parse_style(self, element):
-        """Parse CSS styles from element"""
-        styles = {}
-        
-        # Get inline styles
-        if element.get('style'):
-            try:
-                style = cssutils.parseStyle(element['style'])
-                for prop in style:
-                    styles[prop.name] = prop.value
-            except:
-                pass
-                
-        # Get background color from HTML attributes
-        if element.get('bgcolor'):
-            styles['background-color'] = element['bgcolor']
-            
-        return styles
+    def apply_header_style(self, cell):
+        """Apply header styles to cell"""
+        cell.font = self.header_font
+        cell.alignment = self.default_alignment
+        cell.border = self.default_border
+        cell.fill = PatternFill(
+            start_color='D9D9D9',
+            end_color='D9D9D9',
+            fill_type='solid'
+        )
 
     def apply_cell_style(self, cell, styles):
         """Apply styles to Excel cell"""
         try:
-            # Background color
+            # Font
+            font_props = {'name': 'TH Sarabun New', 'size': 10}
+            if 'color' in styles:
+                rgb = self.css_to_rgb(styles['color'])
+                if rgb:
+                    font_props['color'] = f'{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
+            if 'font-weight' in styles:
+                font_props['bold'] = styles['font-weight'] in ('bold', '700')
+            cell.font = Font(**font_props)
+
+            # Alignment
+            align_props = {'wrap_text': True}
+            if 'text-align' in styles:
+                align_props['horizontal'] = styles['text-align']
+            else:
+                align_props['horizontal'] = 'center'
+            align_props['vertical'] = 'center'
+            cell.alignment = Alignment(**align_props)
+
+            # Border
+            cell.border = self.default_border
+
+            # Background
             if 'background-color' in styles:
                 rgb = self.css_to_rgb(styles['background-color'])
                 if rgb:
@@ -138,99 +126,146 @@ class HTMLToExcelConverter:
                         end_color=f'{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}',
                         fill_type='solid'
                     )
-
-            # Font
-            font_props = {'name': 'TH Sarabun New', 'size': 10}  # Default font properties
-            if 'color' in styles:
-                rgb = self.css_to_rgb(styles['color'])
-                if rgb:
-                    font_props['color'] = f'{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
-            if 'font-size' in styles:
-                try:
-                    size_match = re.search(r'(\d+)', styles['font-size'])
-                    if size_match:
-                        size = float(size_match.group(1))
-                        font_props['size'] = size
-                except:
-                    pass
-            if 'font-weight' in styles:
-                font_props['bold'] = styles['font-weight'] in ('bold', '700')
-                
-            cell.font = Font(**font_props)
-
-            # Alignment
-            align_props = {'wrap_text': True}
-            if 'text-align' in styles:
-                if styles['text-align'] == 'left':
-                    align_props['horizontal'] = 'left'
-                elif styles['text-align'] == 'right':
-                    align_props['horizontal'] = 'right'
-                else:
-                    align_props['horizontal'] = 'center'
-            else:
-                align_props['horizontal'] = 'center'
-                
-            align_props['vertical'] = 'center'  # Default vertical alignment
-            cell.alignment = Alignment(**align_props)
-
-            # Border
-            cell.border = self.default_border
         except Exception as e:
             print(f"Error applying style: {str(e)}")
 
-    def process_table(self, wb, ws, table, start_row):
+    def process_table(self, ws, table, start_row):
         """Process a single table and return the next row number"""
         current_row = start_row
         max_col = 0
         merged_cells = set()
+        header_rows = []
+        footer_rows = []
+        body_rows = []
 
-        # Process each row
-        for row in table.find_all(['tr']):
+        # แยก header, body, footer rows
+        rows = table.find_all('tr')
+        for row in rows:
+            if row.find('th'):
+                header_rows.append(row)
+            elif row.parent and row.parent.name == 'tfoot':
+                footer_rows.append(row)
+            else:
+                body_rows.append(row)
+
+        # Process header rows
+        for row in header_rows:
             current_col = 1
-            row_height = 0
-
-            # Process each cell in the row
-            for cell in row.find_all(['td', 'th']):
-                # Skip if cell is in merged area
+            for cell in row.find_all(['th']):
                 while (current_row, current_col) in merged_cells:
                     current_col += 1
 
-                colspan = self.process_cell(ws, cell, current_row, current_col, merged_cells)
-                current_col += colspan
+                value = cell.get_text(strip=True)
+                excel_cell = ws.cell(row=current_row, column=current_col)
+                excel_cell.value = value
+                self.apply_header_style(excel_cell)
 
-            # Update maximum column count
+                rowspan = int(cell.get('rowspan', 1))
+                colspan = int(cell.get('colspan', 1))
+
+                if rowspan > 1 or colspan > 1:
+                    ws.merge_cells(
+                        start_row=current_row,
+                        start_column=current_col,
+                        end_row=current_row + rowspan - 1,
+                        end_column=current_col + colspan - 1
+                    )
+                    for r in range(current_row, current_row + rowspan):
+                        for c in range(current_col, current_col + colspan):
+                            merged_cells.add((r, c))
+
+                current_col += colspan
             max_col = max(max_col, current_col - 1)
-            
-            # Move to next row
             current_row += 1
 
-        return current_row + 1, max_col  # Return next row with 1 row gap
+        # Process body rows
+        for row in body_rows:
+            current_col = 1
+            for cell in row.find_all(['td']):
+                while (current_row, current_col) in merged_cells:
+                    current_col += 1
+
+                value = cell.get_text(strip=True)
+                excel_cell = ws.cell(row=current_row, column=current_col)
+                excel_cell.value = value
+                
+                styles = self.parse_style(cell)
+                self.apply_cell_style(excel_cell, styles)
+
+                rowspan = int(cell.get('rowspan', 1))
+                colspan = int(cell.get('colspan', 1))
+
+                if rowspan > 1 or colspan > 1:
+                    ws.merge_cells(
+                        start_row=current_row,
+                        start_column=current_col,
+                        end_row=current_row + rowspan - 1,
+                        end_column=current_col + colspan - 1
+                    )
+                    for r in range(current_row, current_row + rowspan):
+                        for c in range(current_col, current_col + colspan):
+                            merged_cells.add((r, c))
+
+                current_col += colspan
+            max_col = max(max_col, current_col - 1)
+            current_row += 1
+
+        # Process footer rows
+        for row in footer_rows:
+            current_col = 1
+            for cell in row.find_all(['td']):
+                while (current_row, current_col) in merged_cells:
+                    current_col += 1
+
+                value = cell.get_text(strip=True)
+                excel_cell = ws.cell(row=current_row, column=current_col)
+                excel_cell.value = value
+                
+                styles = self.parse_style(cell)
+                self.apply_cell_style(excel_cell, styles)
+                excel_cell.font = Font(name='TH Sarabun New', size=10, bold=True)
+
+                rowspan = int(cell.get('rowspan', 1))
+                colspan = int(cell.get('colspan', 1))
+
+                if rowspan > 1 or colspan > 1:
+                    ws.merge_cells(
+                        start_row=current_row,
+                        start_column=current_col,
+                        end_row=current_row + rowspan - 1,
+                        end_column=current_col + colspan - 1
+                    )
+                    for r in range(current_row, current_row + rowspan):
+                        for c in range(current_col, current_col + colspan):
+                            merged_cells.add((r, c))
+
+                current_col += colspan
+            max_col = max(max_col, current_col - 1)
+            current_row += 1
+
+        return current_row + 1, max_col
 
     def convert(self, html_content, output):
         """Convert HTML content to Excel file"""
         try:
-            # Create workbook and select active sheet
             wb = openpyxl.Workbook()
             ws = wb.active
             
-            # Parse HTML content
             soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Find all tables
             tables = soup.find_all('table')
+            
             if not tables:
                 raise ValueError("No tables found in HTML content")
 
             current_row = 1
             max_col = 0
 
-            # Process each table
             for table in tables:
-                next_row, table_max_col = self.process_table(wb, ws, table, current_row)
-                current_row = next_row  # Update current row for next table
+                next_row, table_max_col = self.process_table(ws, table, current_row)
+                current_row = next_row
                 max_col = max(max_col, table_max_col)
 
-            # Adjust column widths for all processed tables
+            # Adjust column widths
             for col in range(1, max_col + 1):
                 max_length = 0
                 column = get_column_letter(col)
@@ -245,11 +280,10 @@ class HTMLToExcelConverter:
                 adjusted_width = min(max_length + 2, 30)
                 ws.column_dimensions[column].width = adjusted_width
 
-            # Save workbook
             if isinstance(output, str):
                 wb.save(output)
             else:
-                wb.save(output)  # Save to buffer
+                wb.save(output)
 
         except Exception as e:
             print(f"Error converting HTML to Excel: {str(e)}")
