@@ -178,226 +178,59 @@ class HTMLToExcelConverter:
         except Exception as e:
             print(f"Error applying style: {str(e)}")
 
-    def process_table(self, ws, table, start_row):
-        """Process a single table"""
-        merged_cells = set()
+    def process_table(self, wb, ws, table, start_row):
+        """Process a single table and return the next row number"""
         current_row = start_row
-        max_col = 1
+        max_col = 0
+        merged_cells = set()
 
         # Process each row
-        rows = table.find_all('tr', recursive=True)
-        for tr in rows:
-            # Skip rows that are in nested tables
-            if tr.find_parent('table') != table:
-                continue
-                
+        for row in table.find_all(['tr']):
             current_col = 1
-            
-            # Skip cells that are part of a merged range
-            while (current_row, current_col) in merged_cells:
-                current_col += 1
+            row_height = 0
 
-            # Process cells in the row
-            cells = tr.find_all(['td', 'th'])
-            for cell in cells:
-                # Skip merged cells
+            # Process each cell in the row
+            for cell in row.find_all(['td', 'th']):
+                # Skip if cell is in merged area
                 while (current_row, current_col) in merged_cells:
                     current_col += 1
-                
-                # Process the cell
+
                 colspan = self.process_cell(ws, cell, current_row, current_col, merged_cells)
                 current_col += colspan
-                
-            if len(cells) > 0:  # Only increment row if we found any cells
-                max_col = max(max_col, current_col - 1)
-                current_row += 1
 
-        return current_row, max_col
+            # Update maximum column count
+            max_col = max(max_col, current_col - 1)
+            
+            # Move to next row
+            current_row += 1
+
+        return current_row + 1, max_col  # Return next row with 1 row gap
 
     def convert(self, html_content, output):
-        """Convert HTML to Excel"""
+        """Convert HTML content to Excel file"""
         try:
-            # Parse HTML
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Create workbook
+            # Create workbook and select active sheet
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = 'Sheet1'
             
+            # Parse HTML content
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Find all tables
+            tables = soup.find_all('table')
+            if not tables:
+                raise ValueError("No tables found in HTML content")
+
             current_row = 1
-            max_col = 13  # Fixed number of columns based on the table structure
-            
-            # Process the timestamp header
-            timestamp_header = soup.find('th', string=lambda x: x and 'Printed' in x)
-            if timestamp_header:
-                cell = ws.cell(row=current_row, column=max_col-2)  # Align to right side
-                cell.value = timestamp_header.get_text(strip=True)
-                cell.alignment = Alignment(horizontal='right', vertical='center')
-                cell.font = Font(name='TH Sarabun New', size=10)
-                current_row += 1
-            
-            # Add blank row after timestamp
-            current_row += 1
-            
-            # Process company header
-            company_table = soup.find('table', attrs={'style': lambda x: x and 'margin-bottom: 5px' in x})
-            if company_table:
-                # Company name
-                company_name = company_table.find('th', string=lambda x: x and 'บริษัท' in x)
-                if company_name:
-                    cell = ws.cell(row=current_row, column=1)
-                    cell.value = company_name.get_text(strip=True)
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-                    cell.font = Font(name='TH Sarabun New', size=10, bold=True)
-                    ws.merge_cells(f'A{current_row}:M{current_row}')
-                    current_row += 1
-                
-                # Date range
-                date_range = company_table.find('th', string=lambda x: x and 'ระหว่างวันที่' in x)
-                if date_range:
-                    cell = ws.cell(row=current_row, column=1)
-                    cell.value = date_range.get_text(strip=True)
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-                    cell.font = Font(name='TH Sarabun New', size=10)
-                    ws.merge_cells(f'A{current_row}:M{current_row}')
-                    current_row += 1
-                
-                # Add blank row after company info
-                current_row += 1
-                
-                # Process employee info rows
-                for row in company_table.find_all('tr'):
-                    cells = row.find_all(['th'])
-                    if len(cells) < 2:  # Skip rows without proper structure
-                        continue
-                        
-                    col = 1
-                    for i, cell in enumerate(cells):
-                        text = cell.get_text(strip=True)
-                        if not text or text in ['บริษัท', 'ระหว่างวันที่']:  # Skip already processed headers
-                            continue
-                            
-                        excel_cell = ws.cell(row=current_row, column=col)
-                        excel_cell.value = text
-                        excel_cell.font = Font(name='TH Sarabun New', size=10)
-                        
-                        # Set alignment
-                        if ':' in text:  # Labels
-                            excel_cell.alignment = Alignment(horizontal='left', vertical='center')
-                        else:
-                            excel_cell.alignment = Alignment(horizontal='left', vertical='center', indent=1)
-                        
-                        # Handle colspan
-                        colspan = int(cell.get('colspan', 1))
-                        if colspan > 1:
-                            ws.merge_cells(
-                                start_row=current_row, 
-                                start_column=col,
-                                end_row=current_row,
-                                end_column=col + colspan - 1
-                            )
-                        col += colspan
-                    
-                    if col > 1:  # Only increment row if we processed any cells
-                        current_row += 1
-            
-            # Add blank rows before main table
-            current_row += 2
-            
-            # Process main table
-            main_table = None
-            for table in soup.find_all('table', recursive=True):
-                if table.find('tr', attrs={'style': lambda x: x and 'text-align: center' in x and 'font-size: 10px' in x}):
-                    main_table = table
-                    break
-            
-            if main_table:
-                # Process table headers first
-                header_row = main_table.find('tr', attrs={'style': lambda x: x and 'text-align: center' in x and 'font-size: 10px' in x})
-                if header_row:
-                    col = 1
-                    for th in header_row.find_all('th'):
-                        cell = ws.cell(row=current_row, column=col)
-                        cell.value = th.get_text(strip=True)
-                        cell.font = Font(name='TH Sarabun New', size=10, bold=True)
-                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                        cell.fill = PatternFill(start_color='f2f2f2', end_color='f2f2f2', fill_type='solid')
-                        cell.border = self.default_border
-                        
-                        # Adjust row height for header
-                        ws.row_dimensions[current_row].height = 30
-                        
-                        col += 1
-                    current_row += 1
-                
-                # Process table body
-                for tr in main_table.find_all('tr', attrs={'style': lambda x: x and 'text-align: center' in x and 'font-size: 10px' in x}):
-                    if tr == header_row:
-                        continue
-                        
-                    col = 1
-                    cells = tr.find_all(['td'])
-                    if not cells:
-                        continue
-                        
-                    # Check if row should have gray background
-                    has_gray_bg = any('background-color: #f0f0f0' in cell.get('style', '') for cell in cells)
-                    
-                    for td in cells:
-                        cell = ws.cell(row=current_row, column=col)
-                        cell.value = td.get_text(strip=True)
-                        cell.font = Font(name='TH Sarabun New', size=10)
-                        
-                        # Apply styles
-                        styles = self.parse_style(td)
-                        if 'text-align' in styles:
-                            if styles['text-align'] == 'left':
-                                cell.alignment = Alignment(horizontal='left', vertical='center')
-                            elif styles['text-align'] == 'right':
-                                cell.alignment = Alignment(horizontal='right', vertical='center', indent=1)
-                            else:
-                                cell.alignment = Alignment(horizontal='center', vertical='center')
-                        else:
-                            cell.alignment = Alignment(horizontal='center', vertical='center')
-                        
-                        # Apply background color
-                        if has_gray_bg:
-                            cell.fill = PatternFill(start_color='f0f0f0', end_color='f0f0f0', fill_type='solid')
-                        
-                        cell.border = self.default_border
-                        col += 1
-                    current_row += 1
-            
-            # Process footer
-            footer = soup.find('tfoot')
-            if footer:
-                footer_row = footer.find('tr')
-                if footer_row:
-                    cells = footer_row.find_all('td')
-                    if len(cells) >= 3:
-                        # First cell
-                        cell = ws.cell(row=current_row, column=1)
-                        cell.value = cells[0].get_text(strip=True)
-                        cell.alignment = Alignment(horizontal='left', vertical='center')
-                        cell.font = Font(name='TH Sarabun New', size=10)
-                        ws.merge_cells(f'A{current_row}:D{current_row}')
-                        
-                        # Second cell
-                        cell = ws.cell(row=current_row, column=5)
-                        cell.value = cells[1].get_text(strip=True)
-                        cell.alignment = Alignment(horizontal='left', vertical='center')
-                        cell.font = Font(name='TH Sarabun New', size=10)
-                        ws.merge_cells(f'E{current_row}:I{current_row}')
-                        
-                        # Third cell
-                        cell = ws.cell(row=current_row, column=10)
-                        cell.value = cells[2].get_text(strip=True)
-                        cell.alignment = Alignment(horizontal='right', vertical='center')
-                        cell.font = Font(name='TH Sarabun New', size=10)
-                        ws.merge_cells(f'J{current_row}:M{current_row}')
-            
-            # Adjust column widths
+            max_col = 0
+
+            # Process each table
+            for table in tables:
+                next_row, table_max_col = self.process_table(wb, ws, table, current_row)
+                current_row = next_row  # Update current row for next table
+                max_col = max(max_col, table_max_col)
+
+            # Adjust column widths for all processed tables
             for col in range(1, max_col + 1):
                 max_length = 0
                 column = get_column_letter(col)
@@ -411,14 +244,13 @@ class HTMLToExcelConverter:
                             
                 adjusted_width = min(max_length + 2, 30)
                 ws.column_dimensions[column].width = adjusted_width
-            
+
             # Save workbook
             if isinstance(output, str):
                 wb.save(output)
             else:
                 wb.save(output)  # Save to buffer
-            print(f"Successfully converted to Excel")
-            
+
         except Exception as e:
             print(f"Error converting HTML to Excel: {str(e)}")
             raise
