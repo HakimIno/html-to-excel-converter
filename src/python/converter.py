@@ -532,30 +532,41 @@ class HTMLToExcelConverter:
 if __name__ == "__main__":
     try:
         # อ่าน input จาก stdin
-        input_data = sys.stdin.read()
-        data = json.loads(input_data)
+        input_data = sys.stdin.read().strip()
         
-        html_content = data.get('html')
-        output_file = data.get('output')
+        # แปลงไฟล์
+        converter = HTMLToExcelConverter()
         
-        if not html_content or not output_file:
-            print(json.dumps({
-                "error": "Missing required parameters"
-            }))
+        try:
+            # พยายามแปลงเป็น JSON
+            data = json.loads(input_data)
+            html_content = data.get('html', '')
+            output_file = data.get('output', 'output.xlsx')
+        except (json.JSONDecodeError, AttributeError):
+            # ถ้าแปลงเป็น JSON ไม่ได้ ให้ใช้ input เป็น HTML โดยตรง
+            html_content = input_data
+            output_file = 'output.xlsx'
+        
+        # ตรวจสอบว่ามี HTML content หรือไม่
+        if not html_content:
+            print(json.dumps({"error": "No HTML content provided"}), file=sys.stderr)
             sys.exit(1)
             
         # แปลงไฟล์
-        converter = HTMLToExcelConverter()
         converter.convert(html_content, output_file)
         
-        # ส่ง response กลับ
+        # ส่ง success response
         print(json.dumps({
             "success": True,
-            "message": "Conversion completed successfully"
+            "message": "Conversion completed successfully",
+            "output": output_file
         }))
+        sys.stdout.flush()
+        sys.exit(0)
         
     except Exception as e:
+        # ส่ง error response
         print(json.dumps({
             "error": str(e)
-        }))
+        }), file=sys.stderr)
         sys.exit(1) 

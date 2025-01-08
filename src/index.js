@@ -85,73 +85,114 @@ class HTMLToExcelConverter {
     const outputPath = path.join(os.tmpdir(), `excel-${crypto.randomBytes(8).toString('hex')}.xlsx`);
 
     return new Promise((resolve, reject) => {
-      // สร้าง PythonShell instance พร้อมกับ configuration
-      const pyshell = new PythonShell(this.pythonScriptPath, {
-        mode: 'json',
-        pythonPath: pythonCmd,
-        pythonOptions: ['-u'], // unbuffered output
-        env: {
-          ...process.env,
-          VIRTUAL_ENV: this.venvPath,
-          PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
-        },
-        stdin: true
-      });
+      let pyshell = null;
+      let timeout = null;
 
-      // ส่ง data ผ่าน stdin
-      pyshell.send(JSON.stringify({
-        html: htmlContent,
-        output: outputPath
-      }));
-
-      // รับ response จาก Python script
-      pyshell.on('message', (message) => {
-        if (message.error) {
-          // ถ้ามี error ให้ลบไฟล์ output (ถ้ามี) และ reject
-          if (fs.existsSync(outputPath)) {
-            try { fs.unlinkSync(outputPath); } catch {}
-          }
-          reject(new Error(message.error));
-        } else if (message.success) {
-          // ถ้าสำเร็จ อ่านไฟล์ Excel เป็น buffer
-          try {
-            const buffer = fs.readFileSync(outputPath);
-            resolve(buffer);
-          } catch (err) {
-            reject(err);
-          } finally {
-            // ลบไฟล์ output หลังจากอ่านเสร็จ
-            try { fs.unlinkSync(outputPath); } catch {}
-          }
+      const cleanup = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
         }
-      });
-
-      // จัดการ error จาก PythonShell
-      pyshell.on('error', (err) => {
         if (fs.existsSync(outputPath)) {
           try { fs.unlinkSync(outputPath); } catch {}
         }
-        reject(err);
-      });
+        if (pyshell) {
+          try { pyshell.terminate(); } catch {}
+        }
+      };
 
-      // จัดการเมื่อ process จบการทำงาน
-      pyshell.end((err) => {
-        if (err) {
-          if (fs.existsSync(outputPath)) {
-            try { fs.unlinkSync(outputPath); } catch {}
+      try {
+        // สร้าง PythonShell instance พร้อมกับ configuration
+        pyshell = new PythonShell(this.pythonScriptPath, {
+          mode: 'text',
+          pythonPath: pythonCmd,
+          pythonOptions: ['-u'],
+          env: {
+            ...process.env,
+            VIRTUAL_ENV: this.venvPath,
+            PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
+          },
+          stdin: true
+        });
+
+        let errorOutput = '';
+        let stdOutput = '';
+        let hasSuccessMessage = false;
+
+        // รับ error output
+        pyshell.stderr.on('data', (data) => {
+          errorOutput += data;
+          console.error('Python stderr:', data);
+        });
+
+        // รับ standard output
+        pyshell.stdout.on('data', (data) => {
+          stdOutput += data;
+          console.log('Python stdout:', data);
+          
+          // ตรวจสอบ success message
+          if (data.includes('"success": true')) {
+            hasSuccessMessage = true;
           }
+        });
+
+        // จัดการเมื่อ process จบการทำงาน
+        pyshell.on('close', () => {
+          console.log('Process closed');
+          
+          if (hasSuccessMessage && fs.existsSync(outputPath)) {
+            try {
+              const buffer = fs.readFileSync(outputPath);
+              cleanup();
+              resolve(buffer);
+            } catch (readErr) {
+              console.error('Failed to read output file:', readErr);
+              cleanup();
+              reject(readErr);
+            }
+          } else {
+            console.error('Process error output:', errorOutput);
+            cleanup();
+            if (errorOutput) {
+              try {
+                const errorJson = JSON.parse(errorOutput);
+                reject(new Error(errorJson.error || 'Unknown error'));
+              } catch (e) {
+                reject(new Error(errorOutput || 'Unknown error'));
+              }
+            } else {
+              reject(new Error('Conversion failed without error message'));
+            }
+          }
+        });
+
+        // จัดการ error จาก PythonShell
+        pyshell.on('error', (err) => {
+          console.error('PythonShell error:', err);
+          cleanup();
           reject(err);
-        }
-      });
+        });
 
-      // ตั้ง timeout เพื่อป้องกันการค้าง
-      setTimeout(() => {
-        pyshell.terminate();
-        if (fs.existsSync(outputPath)) {
-          try { fs.unlinkSync(outputPath); } catch {}
-        }
-        reject(new Error('Conversion timeout after 30 seconds'));
-      }, 30000);
+        // ตั้ง timeout
+        timeout = setTimeout(() => {
+          console.warn('Conversion timeout');
+          cleanup();
+          reject(new Error('Conversion timeout after 30 seconds'));
+        }, 30000);
+
+        // ส่ง HTML content
+        console.log('Sending HTML content to Python...');
+        pyshell.send(JSON.stringify({
+          html: htmlContent,
+          output: outputPath
+        }));
+        pyshell.stdin.end();
+
+      } catch (error) {
+        console.error('Setup error:', error);
+        cleanup();
+        reject(error);
+      }
     });
   }
 }
