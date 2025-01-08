@@ -1,6 +1,6 @@
 {
   "name": "html-to-excel-converter",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Convert HTML tables to Excel files",
   "main": "src/index.js",
   "types": "src/index.d.ts",
