@@ -3,12 +3,21 @@ const path = require('path');
 const { execSync } = require('child_process');
 const os = require('os');
 const fs = require('fs');
+const crypto = require('crypto');
 
 class HTMLToExcelConverter {
   constructor() {
     this.pythonScriptPath = path.join(__dirname, 'python', 'html_to_excel.py');
     this.venvPath = this.getVenvPath();
+    this.tempDir = path.join(os.tmpdir(), 'html-to-excel');
     this.checkPythonDependencies();
+    this.createTempDir();
+  }
+
+  createTempDir() {
+    if (!fs.existsSync(this.tempDir)) {
+      fs.mkdirSync(this.tempDir, { recursive: true });
+    }
   }
 
   getVenvPath() {
@@ -81,30 +90,59 @@ class HTMLToExcelConverter {
 
   async convertHtmlToExcel(htmlContent) {
     const pythonCmd = this.getPythonCommand();
-    return new Promise((resolve, reject) => {
-      let options = {
-        pythonPath: pythonCmd,
-        args: [htmlContent],
-        env: {
-          ...process.env,
-          VIRTUAL_ENV: this.venvPath,
-          PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
-        }
-      };
+    
+    // สร้าง temporary file สำหรับ HTML content
+    const tempHtmlFile = path.join(
+      this.tempDir, 
+      `input-${crypto.randomBytes(8).toString('hex')}.html`
+    );
+    
+    try {
+      // เขียน HTML content ลง temporary file
+      fs.writeFileSync(tempHtmlFile, htmlContent, 'utf8');
 
-      PythonShell.run(this.pythonScriptPath, options).then(messages => {
-        const result = JSON.parse(messages[messages.length - 1]);
-        
-        if (result.success) {
-          const buffer = Buffer.from(result.data, 'base64');
-          resolve(buffer);
-        } else {
-          reject(new Error(result.error));
-        }
-      }).catch(err => {
-        reject(err);
+      return new Promise((resolve, reject) => {
+        let options = {
+          pythonPath: pythonCmd,
+          args: [tempHtmlFile], // ส่ง file path แทน content
+          env: {
+            ...process.env,
+            VIRTUAL_ENV: this.venvPath,
+            PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
+          }
+        };
+
+        PythonShell.run(this.pythonScriptPath, options).then(messages => {
+          try {
+            const result = JSON.parse(messages[messages.length - 1]);
+            
+            if (result.success) {
+              const buffer = Buffer.from(result.data, 'base64');
+              resolve(buffer);
+            } else {
+              reject(new Error(result.error));
+            }
+          } catch (err) {
+            reject(new Error('Failed to parse Python output'));
+          }
+        }).catch(err => {
+          reject(err);
+        }).finally(() => {
+          // ลบ temporary file
+          try {
+            fs.unlinkSync(tempHtmlFile);
+          } catch (err) {
+            console.warn('Failed to delete temporary file:', tempHtmlFile);
+          }
+        });
       });
-    });
+    } catch (error) {
+      // ในกรณีที่มี error ให้ลบ temporary file ด้วย
+      try {
+        fs.unlinkSync(tempHtmlFile);
+      } catch {}
+      throw error;
+    }
   }
 }
 

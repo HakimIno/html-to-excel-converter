@@ -4,8 +4,12 @@ import json
 from io import BytesIO
 import base64
 
-def convert_html_to_excel_buffer(html_content):
+def convert_html_to_excel_buffer(html_file_path):
     try:
+        # อ่าน HTML จาก file
+        with open(html_file_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+            
         # Create a BytesIO buffer
         buffer = BytesIO()
         
@@ -28,7 +32,13 @@ def convert_html_to_excel_buffer(html_content):
         })
 
 if __name__ == "__main__":
-    # Read input from Node.js
-    html_content = sys.argv[1]
-    result = convert_html_to_excel_buffer(html_content)
+    if len(sys.argv) < 2:
+        print(json.dumps({
+            'success': False,
+            'error': 'HTML file path is required'
+        }))
+        sys.exit(1)
+        
+    html_file_path = sys.argv[1]
+    result = convert_html_to_excel_buffer(html_file_path)
     print(result) 
