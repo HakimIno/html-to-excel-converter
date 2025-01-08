@@ -1,6 +1,7 @@
 import sys
 import logging
 import re
+import json
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -529,21 +530,32 @@ class HTMLToExcelConverter:
             raise
 
 if __name__ == "__main__":
-    # ตรวจสอบ command line arguments
-    if len(sys.argv) < 2:
-        print("กรุณาระบุชื่อไฟล์ HTML")
-        print("วิธีใช้: python converter.py input.html [output.xlsx]")
-        sys.exit(1)
-
-    # รับชื่อไฟล์ input
-    input_file = sys.argv[1]
-    
-    # กำหนดชื่อไฟล์ output (ถ้าไม่ระบุจะใช้ชื่อเดียวกับ input แต่เปลี่ยนนามสกุล)
-    output_file = sys.argv[2] if len(sys.argv) > 2 else input_file.rsplit('.', 1)[0] + '.xlsx'
-
-    # แปลงไฟล์
     try:
-        HTMLToExcelConverter.convert_file(input_file, output_file)
+        # อ่าน input จาก stdin
+        input_data = sys.stdin.read()
+        data = json.loads(input_data)
+        
+        html_content = data.get('html')
+        output_file = data.get('output')
+        
+        if not html_content or not output_file:
+            print(json.dumps({
+                "error": "Missing required parameters"
+            }))
+            sys.exit(1)
+            
+        # แปลงไฟล์
+        converter = HTMLToExcelConverter()
+        converter.convert(html_content, output_file)
+        
+        # ส่ง response กลับ
+        print(json.dumps({
+            "success": True,
+            "message": "Conversion completed successfully"
+        }))
+        
     except Exception as e:
-        print(f"ไม่สามารถแปลงไฟล์ได้: {str(e)}")
+        print(json.dumps({
+            "error": str(e)
+        }))
         sys.exit(1) 

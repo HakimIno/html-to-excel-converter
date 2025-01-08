@@ -7,17 +7,9 @@ const crypto = require('crypto');
 
 class HTMLToExcelConverter {
   constructor() {
-    this.pythonScriptPath = path.join(__dirname, 'python', 'html_to_excel.py');
+    this.pythonScriptPath = path.join(__dirname, 'python', 'converter.py');
     this.venvPath = this.getVenvPath();
-    this.tempDir = path.join(os.tmpdir(), 'html-to-excel');
     this.checkPythonDependencies();
-    this.createTempDir();
-  }
-
-  createTempDir() {
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
-    }
   }
 
   getVenvPath() {
@@ -90,59 +82,77 @@ class HTMLToExcelConverter {
 
   async convertHtmlToExcel(htmlContent) {
     const pythonCmd = this.getPythonCommand();
-    
-    // สร้าง temporary file สำหรับ HTML content
-    const tempHtmlFile = path.join(
-      this.tempDir, 
-      `input-${crypto.randomBytes(8).toString('hex')}.html`
-    );
-    
-    try {
-      // เขียน HTML content ลง temporary file
-      fs.writeFileSync(tempHtmlFile, htmlContent, 'utf8');
+    const outputPath = path.join(os.tmpdir(), `excel-${crypto.randomBytes(8).toString('hex')}.xlsx`);
 
-      return new Promise((resolve, reject) => {
-        let options = {
-          pythonPath: pythonCmd,
-          args: [tempHtmlFile], // ส่ง file path แทน content
-          env: {
-            ...process.env,
-            VIRTUAL_ENV: this.venvPath,
-            PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
-          }
-        };
-
-        PythonShell.run(this.pythonScriptPath, options).then(messages => {
-          try {
-            const result = JSON.parse(messages[messages.length - 1]);
-            
-            if (result.success) {
-              const buffer = Buffer.from(result.data, 'base64');
-              resolve(buffer);
-            } else {
-              reject(new Error(result.error));
-            }
-          } catch (err) {
-            reject(new Error('Failed to parse Python output'));
-          }
-        }).catch(err => {
-          reject(err);
-        }).finally(() => {
-          // ลบ temporary file
-          try {
-            fs.unlinkSync(tempHtmlFile);
-          } catch (err) {
-            console.warn('Failed to delete temporary file:', tempHtmlFile);
-          }
-        });
+    return new Promise((resolve, reject) => {
+      // สร้าง PythonShell instance พร้อมกับ configuration
+      const pyshell = new PythonShell(this.pythonScriptPath, {
+        mode: 'json',
+        pythonPath: pythonCmd,
+        pythonOptions: ['-u'], // unbuffered output
+        env: {
+          ...process.env,
+          VIRTUAL_ENV: this.venvPath,
+          PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
+        },
+        stdin: true
       });
-    } catch (error) {
-      // ในกรณีที่มี error ให้ลบ temporary file ด้วย
-      try {
-        fs.unlinkSync(tempHtmlFile);
-      } catch {}
-      throw error;
-    }
+
+      // ส่ง data ผ่าน stdin
+      pyshell.send(JSON.stringify({
+        html: htmlContent,
+        output: outputPath
+      }));
+
+      // รับ response จาก Python script
+      pyshell.on('message', (message) => {
+        if (message.error) {
+          // ถ้ามี error ให้ลบไฟล์ output (ถ้ามี) และ reject
+          if (fs.existsSync(outputPath)) {
+            try { fs.unlinkSync(outputPath); } catch {}
+          }
+          reject(new Error(message.error));
+        } else if (message.success) {
+          // ถ้าสำเร็จ อ่านไฟล์ Excel เป็น buffer
+          try {
+            const buffer = fs.readFileSync(outputPath);
+            resolve(buffer);
+          } catch (err) {
+            reject(err);
+          } finally {
+            // ลบไฟล์ output หลังจากอ่านเสร็จ
+            try { fs.unlinkSync(outputPath); } catch {}
+          }
+        }
+      });
+
+      // จัดการ error จาก PythonShell
+      pyshell.on('error', (err) => {
+        if (fs.existsSync(outputPath)) {
+          try { fs.unlinkSync(outputPath); } catch {}
+        }
+        reject(err);
+      });
+
+      // จัดการเมื่อ process จบการทำงาน
+      pyshell.end((err) => {
+        if (err) {
+          if (fs.existsSync(outputPath)) {
+            try { fs.unlinkSync(outputPath); } catch {}
+          }
+          reject(err);
+        }
+      });
+
+      // ตั้ง timeout เพื่อป้องกันการค้าง
+      setTimeout(() => {
+        pyshell.terminate();
+        if (fs.existsSync(outputPath)) {
+          try { fs.unlinkSync(outputPath); } catch {}
+        }
+        reject(new Error('Conversion timeout after 30 seconds'));
+      }, 30000);
+    });
   }
 }
 
