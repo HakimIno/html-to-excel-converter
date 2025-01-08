@@ -16,13 +16,18 @@ try {
     'cssutils>=2.3.0'
   ];
 
-  // ติดตั้งแต่ละ package
+  // ติดตั้งแต่ละ package แบบ --user เพื่อหลีกเลี่ยงปัญหาสิทธิ์
   dependencies.forEach(dep => {
     try {
       console.log(`Installing ${dep}...`);
-      execSync(`python -m pip install ${dep}`, { stdio: 'inherit' });
+      execSync(`python -m pip install --user ${dep}`, { stdio: 'inherit' });
     } catch (err) {
-      console.warn(`Warning: Failed to install ${dep}`);
+      // ถ้าติดตั้งแบบ --user ไม่ได้ ให้ลองติดตั้งแบบปกติ
+      try {
+        execSync(`python -m pip install ${dep}`, { stdio: 'inherit' });
+      } catch (error) {
+        console.warn(`Warning: Failed to install ${dep}`);
+      }
     }
   });
   

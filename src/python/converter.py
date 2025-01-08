@@ -1,3 +1,9 @@
+import sys
+import logging
+import re
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 try:
     from bs4 import BeautifulSoup
 except ImportError:
@@ -22,16 +28,11 @@ except ImportError:
     print("Error: cssutils is not installed. Please run: pip install cssutils")
     sys.exit(1)
 
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-import re
-import logging
-import sys
+# ตั้งค่า logging level สำหรับ cssutils
+cssutils.log.setLevel(logging.CRITICAL)
 
 class HTMLToExcelConverter:
     def __init__(self):
-        cssutils.log.setLevel(logging.CRITICAL)
-        
         self.default_font = Font(name='TH Sarabun New', size=10)
         self.default_alignment = Alignment(horizontal='center', vertical='center')
         self.default_border = Border(
