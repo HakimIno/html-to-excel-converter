@@ -1,25 +1,54 @@
 const { PythonShell } = require('python-shell');
 const path = require('path');
 const { execSync } = require('child_process');
+const os = require('os');
+const fs = require('fs');
 
 class HTMLToExcelConverter {
   constructor() {
     this.pythonScriptPath = path.join(__dirname, 'python', 'html_to_excel.py');
+    this.venvPath = this.getVenvPath();
     this.checkPythonDependencies();
   }
 
+  getVenvPath() {
+    const envPath = path.join(__dirname, '..', '.env');
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf8');
+      const match = envContent.match(/VENV_PATH=(.+)/);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
   getPythonCommand() {
-    try {
-      execSync('python3 --version');
-      return 'python3';
-    } catch (err) {
+    if (this.venvPath) {
+      const isWindows = os.platform() === 'win32';
+      return isWindows ?
+        path.join(this.venvPath, 'Scripts', 'python.exe') :
+        path.join(this.venvPath, 'bin', 'python');
+    }
+
+    // Fallback to system Python
+    const platform = os.platform();
+    const commands = {
+      darwin: ['python3', 'python'],
+      linux: ['python3', 'python'],
+      win32: ['python', 'py']
+    };
+
+    const pythonCommands = commands[platform] || ['python3', 'python'];
+
+    for (const cmd of pythonCommands) {
       try {
-        execSync('python --version');
-        return 'python';
-      } catch (err2) {
-        throw new Error('Python is not installed or not accessible');
+        execSync(`${cmd} --version`);
+        return cmd;
+      } catch (err) {
+        continue;
       }
     }
+
+    throw new Error('Python is not installed or not accessible');
   }
 
   checkPythonDependencies() {
@@ -29,9 +58,15 @@ class HTMLToExcelConverter {
 
     dependencies.forEach(dep => {
       try {
-        execSync(`${pythonCmd} -c "import ${dep}"`, { stdio: 'ignore' });
+        execSync(`${pythonCmd} -c "import ${dep}"`, {
+          stdio: 'ignore',
+          env: {
+            ...process.env,
+            VIRTUAL_ENV: this.venvPath,
+            PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
+          }
+        });
       } catch (err) {
-        console.error(`Failed to import ${dep}:`, err.message);
         missingDeps.push(dep);
       }
     });
@@ -39,10 +74,7 @@ class HTMLToExcelConverter {
     if (missingDeps.length > 0) {
       throw new Error(
         `Missing Python dependencies: ${missingDeps.join(', ')}.\n` +
-        'Please install them using one of these commands:\n' +
-        `${pythonCmd} -m pip install beautifulsoup4 pandas openpyxl cssutils lxml\n` +
-        `${pythonCmd} -m pip install --user beautifulsoup4 pandas openpyxl cssutils lxml\n` +
-        'pip3 install beautifulsoup4 pandas openpyxl cssutils lxml'
+        'Please run: npm run install-python-deps'
       );
     }
   }
@@ -52,7 +84,12 @@ class HTMLToExcelConverter {
     return new Promise((resolve, reject) => {
       let options = {
         pythonPath: pythonCmd,
-        args: [htmlContent]
+        args: [htmlContent],
+        env: {
+          ...process.env,
+          VIRTUAL_ENV: this.venvPath,
+          PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
+        }
       };
 
       PythonShell.run(this.pythonScriptPath, options).then(messages => {
