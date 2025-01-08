@@ -30,7 +30,6 @@ class HTMLToExcelConverter {
         path.join(this.venvPath, 'bin', 'python');
     }
 
-    // Fallback to system Python
     const platform = os.platform();
     const commands = {
       darwin: ['python3', 'python'],
@@ -54,7 +53,7 @@ class HTMLToExcelConverter {
 
   checkPythonDependencies() {
     const pythonCmd = this.getPythonCommand();
-    const dependencies = ['bs4', 'pandas', 'openpyxl', 'cssutils'];
+    const dependencies = ['bs4', 'xlsxwriter'];
     const missingDeps = [];
 
     dependencies.forEach(dep => {
@@ -75,14 +74,15 @@ class HTMLToExcelConverter {
     if (missingDeps.length > 0) {
       throw new Error(
         `Missing Python dependencies: ${missingDeps.join(', ')}.\n` +
-        'Please run: npm run install-python-deps'
+        'Please run: pip install ' + missingDeps.join(' ')
       );
     }
   }
 
-  async convertHtmlToExcel(htmlContent) {
+  async convertHtmlToExcel(htmlContent, options = {}) {
     const pythonCmd = this.getPythonCommand();
     const outputPath = path.join(os.tmpdir(), `excel-${crypto.randomBytes(8).toString('hex')}.xlsx`);
+    const timeout_ms = options.timeout || 30000;
 
     return new Promise((resolve, reject) => {
       let pyshell = null;
@@ -102,7 +102,6 @@ class HTMLToExcelConverter {
       };
 
       try {
-        // สร้าง PythonShell instance พร้อมกับ configuration
         pyshell = new PythonShell(this.pythonScriptPath, {
           mode: 'text',
           pythonPath: pythonCmd,
@@ -119,39 +118,29 @@ class HTMLToExcelConverter {
         let stdOutput = '';
         let hasSuccessMessage = false;
 
-        // รับ error output
         pyshell.stderr.on('data', (data) => {
           errorOutput += data;
           console.error('Python stderr:', data);
         });
 
-        // รับ standard output
         pyshell.stdout.on('data', (data) => {
           stdOutput += data;
-          console.log('Python stdout:', data);
-          
-          // ตรวจสอบ success message
           if (data.includes('"success": true')) {
             hasSuccessMessage = true;
           }
         });
 
-        // จัดการเมื่อ process จบการทำงาน
         pyshell.on('close', () => {
-          console.log('Process closed');
-          
           if (hasSuccessMessage && fs.existsSync(outputPath)) {
             try {
               const buffer = fs.readFileSync(outputPath);
               cleanup();
               resolve(buffer);
             } catch (readErr) {
-              console.error('Failed to read output file:', readErr);
               cleanup();
               reject(readErr);
             }
           } else {
-            console.error('Process error output:', errorOutput);
             cleanup();
             if (errorOutput) {
               try {
@@ -166,22 +155,16 @@ class HTMLToExcelConverter {
           }
         });
 
-        // จัดการ error จาก PythonShell
         pyshell.on('error', (err) => {
-          console.error('PythonShell error:', err);
           cleanup();
           reject(err);
         });
 
-        // ตั้ง timeout
         timeout = setTimeout(() => {
-          console.warn('Conversion timeout');
           cleanup();
-          reject(new Error('Conversion timeout after 30 seconds'));
-        }, 30000);
+          reject(new Error(`Conversion timeout after ${timeout_ms/1000} seconds`));
+        }, timeout_ms);
 
-        // ส่ง HTML content
-        console.log('Sending HTML content to Python...');
         pyshell.send(JSON.stringify({
           html: htmlContent,
           output: outputPath
@@ -189,7 +172,6 @@ class HTMLToExcelConverter {
         pyshell.stdin.end();
 
       } catch (error) {
-        console.error('Setup error:', error);
         cleanup();
         reject(error);
       }

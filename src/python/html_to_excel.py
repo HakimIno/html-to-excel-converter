@@ -18,6 +18,7 @@ def convert_html_to_excel_buffer(html_file_path):
         converter.convert(html_content, buffer)
         
         # Get the buffer value and encode to base64
+        buffer.seek(0)  # Reset buffer position to start
         excel_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
         buffer.close()
         

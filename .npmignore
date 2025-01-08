@@ -3,4 +3,9 @@
 node_modules
 test
 *.test.js
-.DS_Store 
+.env
+.vscode
+.idea
+*.log
+__pycache__
+*.pyc 
