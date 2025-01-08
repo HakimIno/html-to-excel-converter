@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "types": "src/index.d.ts",
   "scripts": {
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "install-python-deps": "node scripts/postinstall.js"
   },
   "dependencies": {
     "python-shell": "^5.0.0"

@@ -1,10 +1,30 @@
-from bs4 import BeautifulSoup
-import pandas as pd
-import openpyxl
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    print("Error: beautifulsoup4 is not installed. Please run: pip install beautifulsoup4")
+    sys.exit(1)
+
+try:
+    import pandas as pd
+except ImportError:
+    print("Error: pandas is not installed. Please run: pip install pandas")
+    sys.exit(1)
+
+try:
+    import openpyxl
+except ImportError:
+    print("Error: openpyxl is not installed. Please run: pip install openpyxl")
+    sys.exit(1)
+
+try:
+    import cssutils
+except ImportError:
+    print("Error: cssutils is not installed. Please run: pip install cssutils")
+    sys.exit(1)
+
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import re
-import cssutils
 import logging
 import sys
 
