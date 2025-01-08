@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/html-to-excel-converter.git"
+    "url": "https://github.com/HakimIno/html-to-excel-converter.git"
   },
   "files": [
     "src/",
