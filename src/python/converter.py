@@ -2,8 +2,6 @@ import sys
 import logging
 import re
 import json
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 import xlsxwriter
 from io import BytesIO
 import time
@@ -12,12 +10,6 @@ try:
     from bs4 import BeautifulSoup
 except ImportError:
     print("Error: beautifulsoup4 is not installed. Please run: pip install beautifulsoup4")
-    sys.exit(1)
-
-try:
-    import pandas as pd
-except ImportError:
-    print("Error: pandas is not installed. Please run: pip install pandas")
     sys.exit(1)
 
 try:
@@ -32,8 +24,8 @@ cssutils.log.setLevel(logging.CRITICAL)
 class HTMLToExcelConverter:
     def __init__(self):
         cssutils.log.setLevel(logging.CRITICAL)
-        self.default_font = {'name': 'TH Sarabun New', 'size': 10}
-        self.header_font = {'name': 'TH Sarabun New', 'size': 10, 'bold': True}
+        self.default_font = {'font_name': 'TH Sarabun New', 'font_size': 10}
+        self.header_font = {'font_name': 'TH Sarabun New', 'font_size': 10, 'bold': True}
 
     def css_to_rgb(self, color):
         """Convert CSS color to RGB tuple - optimized version"""
