@@ -1,6 +1,6 @@
 {
   "name": "html-to-excel-converter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Convert HTML tables to Excel files",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -10,7 +10,11 @@
   "dependencies": {
     "python-shell": "^5.0.0"
   },
-  "keywords": ["html", "excel", "converter"],
+  "keywords": [
+    "html",
+    "excel",
+    "converter"
+  ],
   "author": "hakimino_o",
   "license": "MIT",
   "engines": {
@@ -30,4 +34,4 @@
     "src/python/html_to_excel.py",
     "src/python/requirements.txt"
   ]
-} 
+}
