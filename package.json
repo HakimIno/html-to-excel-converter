@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Convert HTML tables to Excel files",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
   },
@@ -24,6 +25,9 @@
     "src/",
     "scripts/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "src/python/converter.py",
+    "src/python/html_to_excel.py",
+    "src/python/requirements.txt"
   ]
 } 
