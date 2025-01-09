@@ -1,6 +1,6 @@
 {
   "name": "html-to-excel-converter",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "description": "Convert HTML tables to Excel with support for multiple documents",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -37,7 +37,9 @@
     "README.md",
     "LICENSE"
   ],
-  "trustedDependencies": ["python-shell"],
+  "trustedDependencies": [
+    "python-shell"
+  ],
   "engines": {
     "node": ">=14.0.0"
   }
