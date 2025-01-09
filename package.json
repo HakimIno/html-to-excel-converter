@@ -5,10 +5,7 @@
   "main": "src/index.js",
   "types": "src/index.d.ts",
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
-    "prepare": "npm run build",
-    "build": "node scripts/build.js",
-    "clean": "rm -rf dist"
+    "postinstall": "node scripts/postinstall.js"
   },
   "keywords": [
     "html",
@@ -31,7 +28,6 @@
   },
   "homepage": "https://github.com/HakimIno/html-to-excel-converter#readme",
   "files": [
-    "dist",
     "src",
     "scripts",
     "README.md",
