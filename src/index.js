@@ -1,182 +1,115 @@
 const { PythonShell } = require('python-shell');
-const path = require('path');
-const { execSync } = require('child_process');
-const os = require('os');
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 
 class HTMLToExcelConverter {
-  constructor() {
-    this.pythonScriptPath = path.join(__dirname, 'python', 'converter.py');
-    this.venvPath = this.getVenvPath();
-    this.checkPythonDependencies();
-  }
-
-  getVenvPath() {
-    const envPath = path.join(__dirname, '..', '.env');
-    if (fs.existsSync(envPath)) {
-      const envContent = fs.readFileSync(envPath, 'utf8');
-      const match = envContent.match(/VENV_PATH=(.+)/);
-      if (match) return match[1];
-    }
-    return null;
-  }
-
-  getPythonCommand() {
-    if (this.venvPath) {
-      const isWindows = os.platform() === 'win32';
-      return isWindows ?
-        path.join(this.venvPath, 'Scripts', 'python.exe') :
-        path.join(this.venvPath, 'bin', 'python');
+    constructor(options = {}) {
+        this.pythonScriptPath = path.join(__dirname, 'python', 'html_to_excel.py');
+        this.venvPath = options.venvPath || path.join(__dirname, 'venv');
+        this.maxChunkSize = options.maxChunkSize || 5 * 1024 * 1024; // 5MB
+        this.timeout = options.timeout || 10 * 60 * 1000; // 10 minutes
+        this.maxBuffer = options.maxBuffer || 50 * 1024 * 1024; // 50MB
     }
 
-    const platform = os.platform();
-    const commands = {
-      darwin: ['python3', 'python'],
-      linux: ['python3', 'python'],
-      win32: ['python', 'py']
-    };
+    async convert(html) {
+        try {
+            // Create a temporary file to store the HTML content
+            const tempFile = path.join(os.tmpdir(), crypto.randomBytes(16).toString('hex') + '.html');
+            fs.writeFileSync(tempFile, html);
 
-    const pythonCommands = commands[platform] || ['python3', 'python'];
+            // Get Python executable path
+            const pythonPath = await this.getPythonCommand();
+            
+            // Configure Python shell options
+            const options = {
+                mode: 'text',
+                pythonPath: pythonPath,
+                pythonOptions: ['-u'],
+                scriptPath: path.dirname(this.pythonScriptPath),
+                args: [tempFile],
+                env: process.env
+            };
 
-    for (const cmd of pythonCommands) {
-      try {
-        execSync(`${cmd} --version`);
-        return cmd;
-      } catch (err) {
-        continue;
-      }
-    }
+            // Run Python script
+            return new Promise((resolve, reject) => {
+                let pythonOutput = '';
+                let pythonError = '';
+                
+                const pyshell = new PythonShell('html_to_excel.py', options);
 
-    throw new Error('Python is not installed or not accessible');
-  }
+                pyshell.on('message', function (message) {
+                    pythonOutput += message + '\n';
+                });
 
-  checkPythonDependencies() {
-    const pythonCmd = this.getPythonCommand();
-    const dependencies = ['bs4', 'xlsxwriter'];
-    const missingDeps = [];
+                pyshell.on('stderr', function (stderr) {
+                    if (stderr.trim()) {
+                        pythonError += stderr + '\n';
+                    }
+                });
 
-    dependencies.forEach(dep => {
-      try {
-        execSync(`${pythonCmd} -c "import ${dep}"`, {
-          stdio: 'ignore',
-          env: {
-            ...process.env,
-            VIRTUAL_ENV: this.venvPath,
-            PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
-          }
-        });
-      } catch (err) {
-        missingDeps.push(dep);
-      }
-    });
+                pyshell.end(function (err) {
+                    // Clean up temporary file
+                    try {
+                        fs.unlinkSync(tempFile);
+                    } catch (e) {
+                        // Ignore cleanup errors
+                    }
 
-    if (missingDeps.length > 0) {
-      throw new Error(
-        `Missing Python dependencies: ${missingDeps.join(', ')}.\n` +
-        'Please run: pip install ' + missingDeps.join(' ')
-      );
-    }
-  }
+                    if (err) {
+                        reject(new Error(`Python script error: ${err.message}`));
+                        return;
+                    }
 
-  async convertHtmlToExcel(htmlContent, options = {}) {
-    const pythonCmd = this.getPythonCommand();
-    const outputPath = path.join(os.tmpdir(), `excel-${crypto.randomBytes(8).toString('hex')}.xlsx`);
-    const timeout_ms = options.timeout || 30000;
+                    try {
+                        // Get the last valid JSON object from the output
+                        const lines = pythonOutput.trim().split('\n');
+                        let lastValidJson = null;
+                        
+                        for (const line of lines) {
+                            try {
+                                const json = JSON.parse(line);
+                                if (json.success !== undefined) {
+                                    lastValidJson = json;
+                                }
+                            } catch (e) {
+                                // Skip non-JSON lines
+                            }
+                        }
 
-    return new Promise((resolve, reject) => {
-      let pyshell = null;
-      let timeout = null;
+                        if (!lastValidJson) {
+                            reject(new Error('No valid JSON output from Python script'));
+                            return;
+                        }
 
-      const cleanup = () => {
-        if (timeout) {
-          clearTimeout(timeout);
-          timeout = null;
+                        if (!lastValidJson.success) {
+                            reject(new Error(lastValidJson.error || 'Unknown error'));
+                            return;
+                        }
+
+                        resolve(lastValidJson.data);
+                    } catch (e) {
+                        reject(new Error(`Failed to parse Python output: ${e.message}`));
+                    }
+                });
+            });
+        } catch (error) {
+            throw new Error(`Conversion failed: ${error.message}`);
         }
-        if (fs.existsSync(outputPath)) {
-          try { fs.unlinkSync(outputPath); } catch {}
+    }
+
+    async getPythonCommand() {
+        const isWindows = os.platform() === 'win32';
+        const pythonExecutable = isWindows ? 'python.exe' : 'python';
+        const venvPythonPath = path.join(this.venvPath, 'bin', pythonExecutable);
+        
+        if (fs.existsSync(venvPythonPath)) {
+            return venvPythonPath;
         }
-        if (pyshell) {
-          try { pyshell.terminate(); } catch {}
-        }
-      };
-
-      try {
-        pyshell = new PythonShell(this.pythonScriptPath, {
-          mode: 'text',
-          pythonPath: pythonCmd,
-          pythonOptions: ['-u'],
-          env: {
-            ...process.env,
-            VIRTUAL_ENV: this.venvPath,
-            PATH: `${path.dirname(pythonCmd)}${path.delimiter}${process.env.PATH}`
-          },
-          stdin: true
-        });
-
-        let errorOutput = '';
-        let stdOutput = '';
-        let hasSuccessMessage = false;
-
-        pyshell.stderr.on('data', (data) => {
-          errorOutput += data;
-          console.error('Python stderr:', data);
-        });
-
-        pyshell.stdout.on('data', (data) => {
-          stdOutput += data;
-          if (data.includes('"success": true')) {
-            hasSuccessMessage = true;
-          }
-        });
-
-        pyshell.on('close', () => {
-          if (hasSuccessMessage && fs.existsSync(outputPath)) {
-            try {
-              const buffer = fs.readFileSync(outputPath);
-              cleanup();
-              resolve(buffer);
-            } catch (readErr) {
-              cleanup();
-              reject(readErr);
-            }
-          } else {
-            cleanup();
-            if (errorOutput) {
-              try {
-                const errorJson = JSON.parse(errorOutput);
-                reject(new Error(errorJson.error || 'Unknown error'));
-              } catch (e) {
-                reject(new Error(errorOutput || 'Unknown error'));
-              }
-            } else {
-              reject(new Error('Conversion failed without error message'));
-            }
-          }
-        });
-
-        pyshell.on('error', (err) => {
-          cleanup();
-          reject(err);
-        });
-
-        timeout = setTimeout(() => {
-          cleanup();
-          reject(new Error(`Conversion timeout after ${timeout_ms/1000} seconds`));
-        }, timeout_ms);
-
-        pyshell.send(JSON.stringify({
-          html: htmlContent,
-          output: outputPath
-        }));
-        pyshell.stdin.end();
-
-      } catch (error) {
-        cleanup();
-        reject(error);
-      }
-    });
-  }
+        
+        throw new Error('Python virtual environment not found');
+    }
 }
 
 module.exports = HTMLToExcelConverter; 

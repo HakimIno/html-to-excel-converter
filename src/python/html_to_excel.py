@@ -1,45 +1,68 @@
-from converter import HTMLToExcelConverter
+import logging
 import sys
 import json
-from io import BytesIO
 import base64
+from io import BytesIO
+from converter import HTMLToExcelConverter
+
+# Set up logging to stderr only
+logging.basicConfig(level=logging.DEBUG, 
+                   format='%(asctime)s - %(levelname)s - %(message)s',
+                   stream=sys.stderr)
 
 def convert_html_to_excel_buffer(html_file_path):
     try:
-        # อ่าน HTML จาก file
+        logging.info(f"Received file path: {html_file_path}")
+        logging.info(f"Opening file: {html_file_path}")
+        
         with open(html_file_path, 'r', encoding='utf-8') as f:
             html_content = f.read()
-            
-        # Create a BytesIO buffer
-        buffer = BytesIO()
+            logging.info(f"Successfully read HTML file, size: {len(html_content)} bytes")
         
-        # Convert HTML to Excel and write to buffer
+        logging.info("Created BytesIO buffer")
+        excel_buffer = BytesIO()
+        
+        logging.info("Creating converter instance")
         converter = HTMLToExcelConverter()
-        converter.convert(html_content, buffer)
+        logging.info("Initialized HTMLToExcelConverter")
         
-        # Get the buffer value and encode to base64
-        buffer.seek(0)  # Reset buffer position to start
-        excel_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        buffer.close()
+        logging.info("Starting HTML to Excel conversion")
+        converter.convert(html_content, excel_buffer)
         
-        return json.dumps({
-            'success': True,
-            'data': excel_data
-        })
+        logging.info("Conversion completed successfully")
+        excel_data = excel_buffer.getvalue()
+        excel_base64 = base64.b64encode(excel_data).decode('utf-8')
+        logging.info("Successfully encoded Excel data to base64")
+        
+        # Write result to stdout
+        result = {
+            "success": True,
+            "data": excel_base64
+        }
+        sys.stdout.write(json.dumps(result))
+        sys.stdout.flush()
+        return 0
+        
     except Exception as e:
-        return json.dumps({
-            'success': False,
-            'error': str(e)
-        })
+        logging.error(f"Error during conversion: {str(e)}", exc_info=True)
+        # Write error to stdout
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        sys.stdout.write(json.dumps(result))
+        sys.stdout.flush()
+        return 1
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(json.dumps({
-            'success': False,
-            'error': 'HTML file path is required'
-        }))
+    if len(sys.argv) != 2:
+        result = {
+            "success": False,
+            "error": "Missing HTML file path argument"
+        }
+        sys.stdout.write(json.dumps(result))
+        sys.stdout.flush()
         sys.exit(1)
-        
+    
     html_file_path = sys.argv[1]
-    result = convert_html_to_excel_buffer(html_file_path)
-    print(result) 
+    sys.exit(convert_html_to_excel_buffer(html_file_path)) 
