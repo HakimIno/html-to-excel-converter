@@ -4,9 +4,8 @@
   "description": "Convert HTML tables to Excel with support for multiple documents",
   "main": "src/index.js",
   "scripts": {
-    "test": "node test/test.js",
+    "preinstall": "node scripts/postinstall.js",
     "postinstall": "node scripts/postinstall.js",
-    "prepare": "node scripts/postinstall.js",
     "install-python-deps": "node scripts/postinstall.js"
   },
   "keywords": [

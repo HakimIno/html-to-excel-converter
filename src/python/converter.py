@@ -3,7 +3,6 @@ import logging
 import re
 import json
 import xlsxwriter
-from io import BytesIO
 import time
 
 try:
@@ -24,8 +23,8 @@ cssutils.log.setLevel(logging.CRITICAL)
 class HTMLToExcelConverter:
     def __init__(self):
         cssutils.log.setLevel(logging.CRITICAL)
-        self.default_font = {'font_name': 'TH Sarabun New', 'font_size': 10}
-        self.header_font = {'font_name': 'TH Sarabun New', 'font_size': 10, 'bold': True}
+        self.default_font = {'name': 'TH Sarabun New', 'size': 10}
+        self.header_font = {'name': 'TH Sarabun New', 'size': 10, 'bold': True}
 
     def css_to_rgb(self, color):
         """Convert CSS color to RGB tuple - optimized version"""
@@ -83,96 +82,157 @@ class HTMLToExcelConverter:
                 'border': 1
             })
 
-            # Parse HTML once
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
+            customer_format = workbook.add_format({
+                'font_name': 'TH Sarabun New',
+                'font_size': 10,
+                'align': 'left',
+                'valign': 'vcenter'
+            })
+
+            footer_format = workbook.add_format({
+                'font_name': 'TH Sarabun New',
+                'font_size': 10,
+                'align': 'left'
+            })
+
             current_row = 0
             max_col = 13
 
-            # Process timestamp header
-            timestamp_header = soup.find('th', string=lambda x: x and 'Printed' in x)
-            if timestamp_header:
-                worksheet.write(current_row, max_col-3, timestamp_header.get_text(strip=True),
-                    workbook.add_format({'align': 'right', **self.default_font}))
-                current_row += 2
+            # แยก HTML documents
+            html_documents = [doc for doc in html_content.split('</html>') if doc.strip()]
+            
+            for doc in html_documents:
+                # เพิ่ม closing tag กลับเข้าไป
+                if not doc.endswith('</html>'):
+                    doc = doc + '</html>'
+                
+                # Parse HTML
+                soup = BeautifulSoup(doc, 'html.parser')
 
-            # Process company info
-            company_table = soup.find('table', attrs={'style': lambda x: x and 'margin-bottom: 5px' in x})
-            if company_table:
-                # Company name
-                company_name = company_table.find('th', string=lambda x: x and 'บริษัท' in x)
-                if company_name:
-                    worksheet.merge_range(current_row, 0, current_row, max_col-1,
-                        company_name.get_text(strip=True), header_format)
-                    current_row += 1
-
-                # Date range
-                date_range = company_table.find('th', string=lambda x: x and 'ระหว่างวันที่' in x)
-                if date_range:
-                    worksheet.merge_range(current_row, 0, current_row, max_col-1,
-                        date_range.get_text(strip=True), default_format)
+                # Process timestamp header
+                timestamp_header = soup.find('th', string=lambda x: x and 'Printed' in x)
+                if timestamp_header:
+                    worksheet.write(current_row, max_col-3, timestamp_header.get_text(strip=True),
+                        workbook.add_format({
+                            'font_name': 'TH Sarabun New',
+                            'font_size': 10,
+                            'align': 'right'
+                        }))
                     current_row += 2
 
-            # Process main table efficiently
-            main_table = soup.find('table', recursive=True,
-                attrs={'style': lambda x: x and 'text-align: center' in x})
-            
-            if main_table:
-                # Process headers
-                header_row = main_table.find('tr', attrs={
-                    'style': lambda x: x and 'text-align: center' in x and 'font-size: 10px' in x
-                })
+                # Process company info
+                company_table = soup.find('table', attrs={'style': lambda x: x and 'margin-bottom: 5px' in x})
+                if company_table:
+                    # Company name
+                    company_name = company_table.find('th', string=lambda x: x and 'บริษัท' in x)
+                    if company_name:
+                        worksheet.merge_range(current_row, 0, current_row, max_col-1,
+                            company_name.get_text(strip=True), header_format)
+                        current_row += 1
+
+                    # Date range
+                    date_range = company_table.find('th', string=lambda x: x and 'ระหว่างวันที่' in x)
+                    if date_range:
+                        worksheet.merge_range(current_row, 0, current_row, max_col-1,
+                            date_range.get_text(strip=True), default_format)
+                        current_row += 1
+
+                    # Customer info
+                    customer_rows = company_table.find_all('tr')
+                    for tr in customer_rows[2:]:  # Skip company name and date range
+                        cols = tr.find_all(['th'])
+                        if not cols:
+                            continue
+                        
+                        col_index = 0
+                        for i in range(0, len(cols), 2):
+                            if i + 1 < len(cols):
+                                label = cols[i].get_text(strip=True)
+                                value = cols[i + 1].get_text(strip=True)
+                                if label and value:
+                                    worksheet.write(current_row, col_index, label, customer_format)
+                                    worksheet.write(current_row, col_index + 1, value, customer_format)
+                                    col_index += 4
+                        current_row += 1
+                    
+                    current_row += 1  # Add space after customer info
+
+                # Process main table efficiently
+                main_table = None
+                for table in soup.find_all('table'):
+                    # Skip header table
+                    if table.get('style') and 'margin-bottom: 5px' in table.get('style'):
+                        continue
+                    # Find table with header row containing วันที่, เริ่ม, สิ้นสุด
+                    header_row = table.find('tr', attrs={'style': lambda x: x and 'text-align: center' in x})
+                    if header_row and header_row.find('th', string='วันที่'):
+                        main_table = table
+                        break
                 
-                if header_row:
-                    for col, th in enumerate(header_row.find_all('th')):
-                        worksheet.write(current_row, col, th.get_text(strip=True), header_format)
-                    worksheet.set_row(current_row, 30)  # Set row height
-                    current_row += 1
-
-                # Process table body efficiently
-                rows = []
-                for tr in main_table.find_all('tr'):
-                    if tr == header_row:
-                        continue
-                    
-                    row_data = []
-                    cells = tr.find_all(['td'])
-                    
-                    if not cells:
-                        continue
-                        
-                    has_gray_bg = any('background-color: #f0f0f0' in cell.get('style', '') 
-                                    for cell in cells)
-                    
-                    cell_format = workbook.add_format({
-                        **self.default_font,
-                        'border': 1,
-                        'bg_color': '#f0f0f0' if has_gray_bg else None
+                if main_table:
+                    # Process headers
+                    header_row = main_table.find('tr', attrs={
+                        'style': lambda x: x and 'text-align: center' in x and 'font-size: 10px' in x
                     })
-
-                    for td in cells:
-                        value = td.get_text(strip=True)
-                        style = td.get('style', '')
-                        
-                        # Determine alignment
-                        if 'text-align: left' in style:
-                            cell_format.set_align('left')
-                        elif 'text-align: right' in style:
-                            cell_format.set_align('right')
-                        
-                        row_data.append((value, cell_format))
                     
-                    rows.append(row_data)
+                    if header_row:
+                        for col, th in enumerate(header_row.find_all('th')):
+                            worksheet.write(current_row, col, th.get_text(strip=True), header_format)
+                            # Set column width based on content
+                            width = len(th.get_text(strip=True)) * 1.2  # Adjust multiplier as needed
+                            worksheet.set_column(col, col, max(width, 8))  # Minimum width of 8
+                        worksheet.set_row_pixels(current_row, 30)  # Set row height
+                        current_row += 1
 
-                # Write all rows at once
-                for row_data in rows:
-                    for col, (value, fmt) in enumerate(row_data):
-                        worksheet.write(current_row, col, value, fmt)
-                    current_row += 1
+                    # Process table body efficiently
+                    rows = []
+                    for tr in main_table.find_all('tr'):
+                        if tr == header_row:
+                            continue
+                        
+                        row_data = []
+                        cells = tr.find_all(['td'])
+                        
+                        if not cells:
+                            continue
+                        
+                        for td in cells:
+                            value = td.get_text(strip=True)
+                            style = td.get('style', '')
+                            
+                            cell_format = workbook.add_format({
+                                'font_name': 'TH Sarabun New',
+                                'font_size': 10,
+                                'border': 1,
+                                'align': 'left' if 'text-align: left' in style else 
+                                        'right' if 'text-align: right' in style else 'center'
+                            })
+                            
+                            row_data.append((value, cell_format))
+                        
+                        rows.append(row_data)
 
-            # Set column widths
-            for col in range(max_col):
-                worksheet.set_column(col, col, 15)  # Set fixed width
+                    # Write all rows at once
+                    for row_data in rows:
+                        for col, (value, fmt) in enumerate(row_data):
+                            worksheet.write(current_row, col, value, fmt)
+                        current_row += 1
+
+                # Process footer
+                current_row += 1  # Add space before footer
+                footer = soup.find('tfoot')
+                if footer:
+                    for tr in footer.find_all('tr'):
+                        col = 0
+                        for td in tr.find_all(['td']):
+                            text = td.get_text(strip=True)
+                            if text:
+                                worksheet.write(current_row, col, text, footer_format)
+                                col += 4  # Space between footer columns
+                        current_row += 1
+
+                # Add extra space between documents
+                current_row += 2
 
             workbook.close()
             
