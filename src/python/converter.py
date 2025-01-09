@@ -1,11 +1,9 @@
 import sys
 import logging
-import re
 import json
 import xlsxwriter
 import time
 import gc
-from itertools import islice
 
 try:
     from bs4 import BeautifulSoup, SoupStrainer
@@ -82,8 +80,7 @@ class HTMLToExcelConverter:
             current_row += 2
 
         processed_info = set()  # Keep track of processed information
-        
-        # Process both tem1 and tem2 formats
+
         def process_header_row(row, is_tem2=False):
             nonlocal current_row
             cells = row.find_all(['th'])
@@ -103,9 +100,61 @@ class HTMLToExcelConverter:
             if 'Printed' in row_text or 'พิมพ์' in row_text:
                 return
                 
+            # Skip table header rows (they will be handled by _process_table_headers)
+            if any(header in row_text for header in ['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'OT15', 'OT1', 'OT3']):
+                return
+                
             processed_info.add(row_text)
+
+            # For tem3 format with specific layout
+            if len(cells) == 2 and 'ชื่อลูกค้า' in row_text:
+                # First column (label)
+                worksheet.write(current_row, 0, cells[0].get_text(strip=True),
+                    self._get_format(workbook, 'label', {
+                        'font_name': 'TH Sarabun New',
+                        'font_size': 10,
+                        'align': 'left'
+                    }))
+                # Second column (value) - merged cells
+                worksheet.merge_range(current_row, 1, current_row, 12, cells[1].get_text(strip=True),
+                    self._get_format(workbook, 'value', {
+                        'font_name': 'TH Sarabun New',
+                        'font_size': 10,
+                        'align': 'left'
+                    }))
+                current_row += 1
+                return
+
+            # For tem3 format with driver info
+            if len(cells) == 6 and 'ชื่อคนขับ' in row_text:
+                # Thai name
+                worksheet.merge_range(current_row, 0, current_row, 3, 
+                    cells[0].get_text(strip=True) + " " + cells[1].get_text(strip=True),
+                    self._get_format(workbook, 'driver_info', {
+                        'font_name': 'TH Sarabun New',
+                        'font_size': 10,
+                        'align': 'left'
+                    }))
+                # English name
+                worksheet.merge_range(current_row, 4, current_row, 7,
+                    cells[2].get_text(strip=True) + " " + cells[3].get_text(strip=True),
+                    self._get_format(workbook, 'driver_info', {
+                        'font_name': 'TH Sarabun New',
+                        'font_size': 10,
+                        'align': 'left'
+                    }))
+                # Position
+                worksheet.merge_range(current_row, 8, current_row, 12,
+                    cells[4].get_text(strip=True) + " " + cells[5].get_text(strip=True),
+                    self._get_format(workbook, 'driver_info', {
+                        'font_name': 'TH Sarabun New',
+                        'font_size': 10,
+                        'align': 'left'
+                    }))
+                current_row += 1
+                return
             
-            # Determine format based on content
+            # Determine format based on content and classes
             align = 'center'  # default alignment
             if 'text-left' in row.get('class', []) or any('text-left' in cell.get('class', []) for cell in cells):
                 align = 'left'
@@ -182,7 +231,16 @@ class HTMLToExcelConverter:
             
             current_row += 1
 
-        # First try tem1 format (nested table)
+        # First try tem3 format
+        tem3_header = soup.find('table', style=lambda x: x and 'font-size: 10px' in x)
+        if tem3_header:
+            thead = tem3_header.find('thead')
+            if thead:
+                for row in thead.find_all('tr'):
+                    process_header_row(row)
+                return current_row + 1
+
+        # Then try tem1 format (nested table)
         tem1_processed = False
         for table in soup.find_all('table'):
             if table.get('style') and 'margin-bottom: 5px' in table.get('style'):
@@ -197,10 +255,14 @@ class HTMLToExcelConverter:
         if not tem1_processed:
             for table in soup.find_all('table'):
                 thead = table.find('thead')
-                if thead and any('head-paper' in th.get('class', []) for th in thead.find_all('th')):
-                    for row in thead.find_all('tr'):
-                        process_header_row(row, is_tem2=True)
-                    break
+                if thead:
+                    # Check for tem2 format
+                    is_tem2 = any('head-paper' in th.get('class', []) for th in thead.find_all('th'))
+                    if is_tem2:
+                        for row in thead.find_all('tr'):
+                            if not any(header in row.get_text() for header in ['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'OT15', 'OT1', 'OT3']):
+                                process_header_row(row, is_tem2=is_tem2)
+                        break
 
         current_row += 1  # Add space after header
         return current_row

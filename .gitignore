@@ -1,3 +1,7 @@
 test-converter
 tem1.html
 tem2.html
+node_modules/
+venv/
+.env
+dist/

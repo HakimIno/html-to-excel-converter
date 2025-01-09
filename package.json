@@ -1,12 +1,14 @@
 {
   "name": "html-to-excel-converter",
-  "version": "1.1.4",
+  "version": "1.2.3",
   "description": "Convert HTML tables to Excel with support for multiple documents",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "scripts": {
-    "preinstall": "node scripts/postinstall.js",
     "postinstall": "node scripts/postinstall.js",
-    "install-python-deps": "node scripts/postinstall.js"
+    "prepare": "npm run build",
+    "build": "node scripts/build.js",
+    "clean": "rm -rf dist"
   },
   "keywords": [
     "html",
@@ -29,11 +31,14 @@
   },
   "homepage": "https://github.com/HakimIno/html-to-excel-converter#readme",
   "files": [
-    "src/",
-    "scripts/",
+    "dist",
+    "src",
+    "scripts",
     "README.md",
-    "LICENSE",
-    "src/python/converter.py",
-    "src/python/requirements.txt"
-  ]
+    "LICENSE"
+  ],
+  "trustedDependencies": ["python-shell"],
+  "engines": {
+    "node": ">=14.0.0"
+  }
 }

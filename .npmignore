@@ -1,11 +1,42 @@
+# Development files
 .git
+.github
 .gitignore
-node_modules
-test
-*.test.js
-.env
-.vscode
-.idea
+.npmignore
+.editorconfig
+.eslintrc
+.prettierrc
 *.log
-__pycache__
-*.pyc 
+
+# Test files
+test
+tests
+__tests__
+coverage
+
+# Documentation
+docs
+examples
+*.md
+!README.md
+
+# Build files
+node_modules
+dist
+build
+*.tgz
+
+# IDE files
+.idea
+.vscode
+*.sublime-*
+*.swp
+
+# Environment files
+.env
+.env.*
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store 
