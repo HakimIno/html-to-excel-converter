@@ -1,6 +1,6 @@
 import sys
 import json
-from converterv3 import HTMLTableConverter
+from python.converter import HTMLTableConverter
 
 def main():
     try:

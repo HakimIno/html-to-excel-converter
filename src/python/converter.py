@@ -63,6 +63,13 @@ class CellStyle:
     align: str = 'center'
     valign: str = 'vcenter'
     text_wrap: bool = True
+    border_color: str = None  # Add border color support
+    pattern: int = 0  # Add pattern/fill type support
+    rotation: int = 0  # Add text rotation support
+    indent: int = 0  # Add cell indentation support
+    shrink: bool = False  # Add shrink to fit support
+    locked: bool = True  # Add cell protection support
+    hidden: bool = False  # Add formula hiding support
     
     def to_excel_format(self) -> dict:
         """Convert to Excel format dictionary"""
@@ -96,6 +103,20 @@ class CellStyle:
             format_dict['valign'] = self.valign
         if self.text_wrap:
             format_dict['text_wrap'] = True
+        if self.border_color:  # Add new properties to format dict
+            format_dict['border_color'] = self.border_color
+        if self.pattern:
+            format_dict['pattern'] = self.pattern
+        if self.rotation:
+            format_dict['rotation'] = self.rotation
+        if self.indent:
+            format_dict['indent'] = self.indent
+        if self.shrink:
+            format_dict['shrink'] = True
+        if not self.locked:
+            format_dict['locked'] = False
+        if self.hidden:
+            format_dict['hidden'] = True
             
         return format_dict
 
@@ -110,6 +131,7 @@ class StyleManager:
         self._max_cache_size = 2500
         self._cache_hits = 0
         self._cache_misses = 0
+        self._stylesheet_rules = []
         
     def _clean_cache(self):
         """Clean up cache using LRU strategy when exceeds max size"""
@@ -201,6 +223,10 @@ class StyleManager:
             size = css['font-size']
             if 'px' in size:
                 style.font_size = float(size.replace('px', '')) * 0.75  # Convert px to points
+            elif 'pt' in size:
+                style.font_size = float(size.replace('pt', ''))
+            elif 'em' in size:
+                style.font_size = float(size.replace('em', '')) * 12  # Base size * em value
         if css.get('font-weight', '') in ('bold', '700', '800', '900'):
             style.bold = True
         if css.get('font-style', '') == 'italic':
@@ -212,15 +238,11 @@ class StyleManager:
         style.font_color = self._parse_color(css.get('color'))
         style.bg_color = self._parse_color(css.get('background-color'))
         
-        # Process alignment
+        # Process text alignment
         if 'text-align' in css:
             align = css['text-align']
-            if align == 'left':
-                style.align = 'left'
-            elif align == 'right':
-                style.align = 'right'
-            else:
-                style.align = 'center'
+            if align in ('left', 'right', 'center', 'justify'):
+                style.align = align
                 
         if 'vertical-align' in css:
             valign = css['vertical-align']
@@ -230,6 +252,18 @@ class StyleManager:
                 style.valign = 'bottom'
             else:
                 style.valign = 'vcenter'
+                
+        # Process text rotation
+        if 'transform' in css:
+            rotate_match = re.search(r'rotate\(([-\d.]+)deg\)', css['transform'])
+            if rotate_match:
+                style.rotation = int(float(rotate_match.group(1)))
+                
+        # Process text indentation
+        if 'text-indent' in css:
+            indent = css['text-indent']
+            if 'px' in indent:
+                style.indent = int(float(indent.replace('px', '')) / 10)  # Convert px to Excel indent level
                 
         # Process borders - only apply when specified in style
         border_styles = {
@@ -256,6 +290,11 @@ class StyleManager:
                 style.border_right = border_type
                 style.border_bottom = border_type
                 style.border_left = border_type
+                
+                # Extract border color if present
+                border_color_match = re.search(r'#[0-9a-fA-F]{3,6}|rgb\([^)]+\)', border_value)
+                if border_color_match:
+                    style.border_color = self._parse_color(border_color_match.group(0))
         
         # Then process individual borders (these will override full border)
         for css_prop, style_prop in border_styles.items():
@@ -268,8 +307,21 @@ class StyleManager:
                 elif 'dashed' in value:
                     setattr(style, style_prop, 3)
                     
-        # Set text wrap by default for all cells
-        style.text_wrap = True
+                # Extract individual border colors
+                border_color_match = re.search(r'#[0-9a-fA-F]{3,6}|rgb\([^)]+\)', value)
+                if border_color_match:
+                    style.border_color = self._parse_color(border_color_match.group(0))
+                    
+        # Process text wrapping
+        if 'white-space' in css:
+            if css['white-space'] in ('nowrap', 'pre'):
+                style.text_wrap = False
+            else:
+                style.text_wrap = True
+                
+        # Process cell shrink to fit
+        if 'overflow' in css and css['overflow'] == 'hidden':
+            style.shrink = True
                     
         return style
         
@@ -309,6 +361,154 @@ class StyleManager:
             'style_cache_size': len(self._style_cache),
             'color_cache_size': len(self._color_cache)
         }
+
+    def parse_stylesheet(self, html_content: str):
+        """Parse CSS rules from style tags in HTML"""
+        parser = HTMLParser(html_content)
+        style_tags = parser.css('style')
+        
+        for style_tag in style_tags:
+            css_text = style_tag.text()
+            # Handle multiple selectors separated by comma
+            rules = []
+            current_selectors = []
+            current_styles = ""
+            in_styles = False
+            
+            for line in css_text.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('/*') or line.startswith('@'):
+                    continue
+                    
+                if '{' in line:
+                    selector_part = line.split('{')[0].strip()
+                    current_selectors.extend([s.strip() for s in selector_part.split(',')])
+                    in_styles = True
+                    if '{' in line and '}' in line:  # Single line rule
+                        style_part = line.split('{')[1].split('}')[0].strip()
+                        for selector in current_selectors:
+                            rules.append((selector, style_part))
+                        current_selectors = []
+                        current_styles = ""
+                        in_styles = False
+                    else:
+                        current_styles = line.split('{')[1].strip()
+                elif '}' in line:
+                    current_styles += " " + line.split('}')[0].strip()
+                    for selector in current_selectors:
+                        rules.append((selector, current_styles))
+                    current_selectors = []
+                    current_styles = ""
+                    in_styles = False
+                elif in_styles:
+                    current_styles += " " + line
+                    
+            # Process all rules
+            for selector, styles in rules:
+                selector = selector.strip()
+                if not selector or selector.startswith('@'):  # Skip @media and other @ rules
+                    continue
+                    
+                # Parse styles into dictionary
+                style_dict = {}
+                for style in styles.split(';'):
+                    if ':' in style:
+                        prop, value = style.split(':', 1)
+                        style_dict[prop.strip()] = value.strip()
+                        
+                # Store rule with selector and styles
+                self._stylesheet_rules.append({
+                    'selector': selector,
+                    'styles': style_dict
+                })
+                
+    def _matches_selector(self, node, selector: str) -> bool:
+        """Check if node matches CSS selector"""
+        # Split complex selectors
+        if ',' in selector:
+            return any(self._matches_selector(node, s.strip()) for s in selector.split(','))
+            
+        # Handle combinators
+        if ' > ' in selector:  # Direct child
+            parent_sel, child_sel = selector.rsplit(' > ', 1)
+            if not self._matches_simple_selector(node, child_sel):
+                return False
+            parent = node.parent
+            return parent and self._matches_selector(parent, parent_sel)
+            
+        if ' + ' in selector:  # Adjacent sibling
+            prev_sel, curr_sel = selector.rsplit(' + ', 1)
+            if not self._matches_simple_selector(node, curr_sel):
+                return False
+            prev_sibling = node.prev
+            return prev_sibling and self._matches_selector(prev_sibling, prev_sel)
+            
+        if ' ' in selector:  # Descendant
+            parts = selector.split()
+            current = node
+            for part in reversed(parts):
+                if not self._matches_simple_selector(current, part):
+                    return False
+                if parts.index(part) > 0:  # Not the first part
+                    current = self._find_ancestor(current, parts[parts.index(part)-1])
+                    if not current:
+                        return False
+            return True
+            
+        # Handle simple selector
+        return self._matches_simple_selector(node, selector)
+        
+    def _matches_simple_selector(self, node, selector: str) -> bool:
+        """Match a simple selector against a node"""
+        # Handle element with multiple classes
+        if '.' in selector:
+            parts = selector.split('.')
+            element = parts[0]
+            classes = parts[1:]
+            
+            # Check element type if specified
+            if element and element != '*' and element != node.tag:
+                return False
+                
+            # Check all classes
+            node_classes = set(node.attributes.get('class', '').split())
+            return all(c in node_classes for c in classes)
+            
+        # Handle element selector
+        if selector in ('td', 'th', 'tr', 'table', '*'):
+            return selector == '*' or node.tag == selector
+            
+        # Handle class selector
+        if selector.startswith('.'):
+            class_name = selector[1:]
+            return class_name in node.attributes.get('class', '').split()
+            
+        return False
+        
+    def _find_ancestor(self, node, selector: str) -> Optional[object]:
+        """Find ancestor matching selector"""
+        current = node.parent
+        while current:
+            if self._matches_simple_selector(current, selector):
+                return current
+            current = current.parent
+        return None
+        
+    def _get_matching_styles(self, node) -> Dict:
+        """Get all CSS styles that apply to this node"""
+        matching_styles = {}
+        
+        # Process rules in order of appearance (later rules override earlier ones)
+        for rule in self._stylesheet_rules:
+            try:
+                if self._matches_selector(node, rule['selector']):
+                    # Update styles (later rules override earlier ones)
+                    matching_styles.update(rule['styles'])
+            except Exception as e:
+                logger.warning(f"Error matching selector '{rule['selector']}': {str(e)}")
+                continue
+                
+        return matching_styles
 
 class TableMatrix:
     """Manages table cell matrix with merge handling and nested table support"""

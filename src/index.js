@@ -60,36 +60,35 @@ class BaseConverter {
 
 class HTMLToExcelConverter extends BaseConverter {
     async convert(html, outputPath) {
-        return this._runPythonScript('converterv3.py', {
+        return this._runPythonScript('converter.py', {
             html,
             output_path: outputPath
         });
     }
 
     async convertToBuffer(html) {
-        return this._runPythonScript('converterv3.py', {
+        return this._runPythonScript('converter.py', {
             html,
             return_buffer: true
         });
     }
 }
 
-class HTMLToPDFConverter extends BaseConverter {
-    constructor(options = {}) {
-        super(options);
-        this.pdfOptions = options.pdf || {};
-    }
+// class HTMLToPDFConverter extends BaseConverter {
+//     constructor(options = {}) {
+//         super(options);
+//         this.pdfOptions = options.pdf || {};
+//     }
 
-    async convert(html, outputPath) {
-        return this._runPythonScript('html_to_pdf_v2.py', {
-            html,
-            output_path: outputPath,
-            options: this.pdfOptions
-        });
-    }
-}
+//     async convert(html, outputPath) {
+//         return this._runPythonScript('html_to_pdf_v2.py', {
+//             html,
+//             output_path: outputPath,
+//             options: this.pdfOptions
+//         });
+//     }
+// }
 
 module.exports = {
-    HTMLToExcelConverter,
-    HTMLToPDFConverter
+    HTMLToExcelConverter
 }; 
