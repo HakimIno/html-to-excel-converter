@@ -11,6 +11,8 @@ Convert HTML tables to Excel files with beautiful styling preservation and suppo
 - 🚀 Memory efficient for large tables
 - 🔄 Support for nested tables
 
+## Example Result
+
 ## Prerequisites
 
 - Node.js >= 14.0.0
@@ -23,7 +25,7 @@ npm install html-to-excel-converter
 ```
 
 ```bash
-ัyarn add html-to-excel-converter
+yarn add html-to-excel-converter
 ```
 
 ```bash
@@ -54,6 +56,8 @@ try {
 ### Complex Example
 
 Here's a complete example showing a complex HTML table with merged cells, styling, and multiple rows:
+
+Input HTML Table:
 
 ```html
 <!DOCTYPE html>
@@ -130,6 +134,11 @@ Here's a complete example showing a complex HTML table with merged cells, stylin
 </body>
 </html>
 ```
+
+Output Excel File:
+
+![Output Excel](./images/output-excel.png)
+
 
 This HTML will be converted to Excel maintaining:
 - Merged cells (rowspan and colspan)
